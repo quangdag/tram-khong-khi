@@ -297,7 +297,7 @@ details summary::-webkit-details-marker { display: none; }
     return true;
   }
 
-  // --- Nguồn 2: mở file này bằng Safari (ngoài claude.ai) – đọc thẳng Firebase, 15 giây/lần ---
+  // --- Nguồn 2: mở file này bằng Safari (ngoài claude.ai) – đọc thẳng Firebase, nghe trực tiếp (listen) + hỏi lại 60 s/lần ---
   var FB_KEY = "tram_fb_url";
   function getFb() { var d = window.TRAM_FB_DEFAULT || "";   // bản index.html điền sẵn (tools/xuat_app.py, lấy từ local.mk)
     try { return localStorage.getItem(FB_KEY) || d; } catch (e) { return d; } }
@@ -318,10 +318,28 @@ details summary::-webkit-details-marker { display: none; }
     $("fb").value = getFb();
     $("fb-save").addEventListener("click", function () {
       try { localStorage.setItem(FB_KEY, $("fb").value.trim()); } catch (e) {}
-      poll();
+      poll(); listen();
     });
-    poll(); setInterval(poll, 15000);
+    poll(); listen();
+    setInterval(poll, 60000);                // dự phòng nếu luồng trực tiếp bị ngắt
     setInterval(render, 30000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) { poll(); listen(); } });
+  }
+
+  // --- Nghe trực tiếp: Firebase REST streaming (EventSource) – có gói mới là tải lại ngay, không chờ 15 s ---
+  var es = null, esBase = "", esTimer = null;
+  function listen() {
+    var base = getFb().replace(/\/+$/, "");
+    if (!base || !window.EventSource) return;
+    if (es && esBase === base && es.readyState !== 2) return;   // đang nghe rồi
+    if (es) es.close();
+    esBase = base;
+    es = new EventSource(base + '/chirpstack.json?orderBy="$key"&limitToLast=1');
+    var kick = function () { clearTimeout(esTimer); esTimer = setTimeout(poll, 300); };  // gộp nhiều sự kiện liền nhau
+    es.addEventListener("put", kick);
+    es.addEventListener("patch", kick);
+    es.addEventListener("open", function () { live = true; render(); });
+    es.onerror = function () { /* trình duyệt tự kết nối lại; vẫn còn hỏi 60 s/lần */ };
   }
 
   function start(tries) {
